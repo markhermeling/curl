@@ -10,7 +10,12 @@ on:
 jobs:
   build:
     name: Build
-    runs-on: canuckmh/curl-builder:latest
+    runs-on: self-hosted
+    container: 
+      image: canuckmh/curl-builder:latest
+      credentials:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
     permissions: read-all
     steps:
       - uses: actions/checkout@v2
