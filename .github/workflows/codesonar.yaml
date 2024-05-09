@@ -27,8 +27,6 @@ jobs:
       CSONAR_HUB_URL: ${{ vars.CSONAR_HUB_URL }}
 
     steps:
-      - name: Set parallelism
-        run:  echo "PARALLEL=`nproc`" >> $GITHUB_ENV
       - name: Checkout 
         uses: actions/checkout@v4
       - name: Safe directory
@@ -42,10 +40,10 @@ jobs:
           ref: feature/auto-set-vars
           path: cso-scripts
       - name: Build and Analyze
-        run: python3 cso-scripts/build_and_analyze.py codesonar.conf make -j $PARALLEL
+        run: python3 cso-scripts/build_and_analyze.py codesonar.conf make -j $(nproc)
       - name: Upload SARIF to GitHub #Use this if you do not have GitHub Enterprise
         if: ${{ github.event.pull_request }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: SARIF file
           path: warnings.sarif
