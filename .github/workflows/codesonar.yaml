@@ -23,8 +23,8 @@ jobs:
       # GITHUB does not copy secrets to the environment, so we need to set them manually
       GITHUB_TOKEN: ${{ secrets.github_token }} 
       CSONAR_HUB_PASSWORD: ${{ secrets.CSONAR_HUB_PASSWORD }}
-      CSONAR_HUB_USER: ${{ env.CSONAR_HUB_USER }}
-      CSONAR_HUB_URL: ${{ env.CSONAR_HUB_URL }}
+      CSONAR_HUB_USER: ${{ vars.CSONAR_HUB_USER }}
+      CSONAR_HUB_URL: ${{ vars.CSONAR_HUB_URL }}
 
     steps:
       - name: Set parallelism
