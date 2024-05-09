@@ -906,7 +906,6 @@ static OSStatus sectransp_bio_cf_out_write(SSLConnectionRef connection,
   return rtn;
 }
 
-#ifndef CURL_DISABLE_VERBOSE_STRINGS
 CF_INLINE const char *TLSCipherNameForNumber(SSLCipherSuite cipher)
 {
   /* The first ciphers in the ciphertable are continuous. Here we do small
@@ -925,7 +924,6 @@ CF_INLINE const char *TLSCipherNameForNumber(SSLCipherSuite cipher)
   }
   return ciphertable[SSL_NULL_WITH_NULL_NULL].name;
 }
-#endif /* !CURL_DISABLE_VERBOSE_STRINGS */
 
 #if CURL_BUILD_MAC
 CF_INLINE void GetDarwinVersionNumber(int *major, int *minor)
@@ -1455,7 +1453,7 @@ static bool is_cipher_suite_strong(SSLCipherSuite suite_num)
   return true;
 }
 
-static bool is_separator(char c)
+static bool sectransp_is_separator(char c)
 {
   /* Return whether character is a cipher list separator. */
   switch(c) {
@@ -1549,7 +1547,7 @@ static CURLcode sectransp_set_selected_ciphers(struct Curl_easy *data,
   if(!ciphers)
     return CURLE_OK;
 
-  while(is_separator(*ciphers))     /* Skip initial separators. */
+  while(sectransp_is_separator(*ciphers))  /* Skip initial separators. */
     ciphers++;
   if(!*ciphers)
     return CURLE_OK;
@@ -1563,14 +1561,14 @@ static CURLcode sectransp_set_selected_ciphers(struct Curl_easy *data,
     size_t i;
 
     /* Skip separators */
-    while(is_separator(*cipher_start))
+    while(sectransp_is_separator(*cipher_start))
       cipher_start++;
     if(*cipher_start == '\0') {
       break;
     }
     /* Find last position of a cipher in the ciphers string */
     cipher_end = cipher_start;
-    while(*cipher_end != '\0' && !is_separator(*cipher_end)) {
+    while(*cipher_end != '\0' && !sectransp_is_separator(*cipher_end)) {
       ++cipher_end;
     }
 
@@ -2010,7 +2008,7 @@ static CURLcode sectransp_connect_step1(struct Curl_cfilter *cf,
       return CURLE_SSL_CONNECT_ERROR;
     }
 
-    if(connssl->peer.is_ip_address) {
+    if(connssl->peer.type != CURL_SSL_PEER_DNS) {
       infof(data, "WARNING: using IP address, SNI is being disabled by "
             "the OS.");
     }
@@ -2049,8 +2047,8 @@ static CURLcode sectransp_connect_step1(struct Curl_cfilter *cf,
     size_t ssl_sessionid_len;
 
     Curl_ssl_sessionid_lock(data);
-    if(!Curl_ssl_getsessionid(cf, data, (void **)&ssl_sessionid,
-                              &ssl_sessionid_len)) {
+    if(!Curl_ssl_getsessionid(cf, data, &connssl->peer,
+                              (void **)&ssl_sessionid, &ssl_sessionid_len)) {
       /* we got a session id, use it! */
       err = SSLSetPeerID(backend->ssl_ctx, ssl_sessionid, ssl_sessionid_len);
       Curl_ssl_sessionid_unlock(data);
@@ -2069,7 +2067,7 @@ static CURLcode sectransp_connect_step1(struct Curl_cfilter *cf,
         aprintf("%s:%d:%d:%s:%d",
                 ssl_cafile ? ssl_cafile : "(blob memory)",
                 verifypeer, conn_config->verifyhost, connssl->peer.hostname,
-                connssl->port);
+                connssl->peer.port);
       ssl_sessionid_len = strlen(ssl_sessionid);
 
       err = SSLSetPeerID(backend->ssl_ctx, ssl_sessionid, ssl_sessionid_len);
@@ -2079,7 +2077,7 @@ static CURLcode sectransp_connect_step1(struct Curl_cfilter *cf,
         return CURLE_SSL_CONNECT_ERROR;
       }
 
-      result = Curl_ssl_addsessionid(cf, data, ssl_sessionid,
+      result = Curl_ssl_addsessionid(cf, data, &connssl->peer, ssl_sessionid,
                                      ssl_sessionid_len, NULL);
       Curl_ssl_sessionid_unlock(data);
       if(result) {
@@ -2369,19 +2367,15 @@ static CURLcode verify_cert(struct Curl_cfilter *cf,
                             const struct curl_blob *ca_info_blob,
                             SSLContextRef ctx)
 {
-  int result;
+  CURLcode result;
   unsigned char *certbuf;
   size_t buflen;
+  bool free_certbuf = FALSE;
 
   if(ca_info_blob) {
     CURL_TRC_CF(data, cf, "verify_peer, CA from config blob");
-    certbuf = (unsigned char *)malloc(ca_info_blob->len + 1);
-    if(!certbuf) {
-      return CURLE_OUT_OF_MEMORY;
-    }
+    certbuf = ca_info_blob->data;
     buflen = ca_info_blob->len;
-    memcpy(certbuf, ca_info_blob->data, ca_info_blob->len);
-    certbuf[ca_info_blob->len]='\0';
   }
   else if(cafile) {
     CURL_TRC_CF(data, cf, "verify_peer, CA from file '%s'", cafile);
@@ -2389,12 +2383,14 @@ static CURLcode verify_cert(struct Curl_cfilter *cf,
       failf(data, "SSL: failed to read or invalid CA certificate");
       return CURLE_SSL_CACERT_BADFILE;
     }
+    free_certbuf = TRUE;
   }
   else
     return CURLE_SSL_CACERT_BADFILE;
 
   result = verify_cert_buf(cf, data, certbuf, buflen, ctx);
-  free(certbuf);
+  if(free_certbuf)
+    free(certbuf);
   return result;
 }
 

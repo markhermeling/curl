@@ -208,7 +208,14 @@ int tool_progress_cb(void *clientp,
     memset(line, '#', num);
     line[num] = '\0';
     msnprintf(format, sizeof(format), "\r%%-%ds %%5.1f%%%%", barwidth);
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wformat-nonliteral"
+#endif
     fprintf(bar->out, format, line, percent);
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
   }
   fflush(bar->out);
   bar->prev = point;
@@ -222,28 +229,25 @@ int tool_progress_cb(void *clientp,
   return 0;
 }
 
-void progressbarinit(struct ProgressData *bar,
-                     struct OperationConfig *config)
+/*
+ * get_terminal_columns() returns the number of columns in the current
+ * terminal. It will return 79 on failure. Also, the number can be very big.
+ */
+
+unsigned int get_terminal_columns(void)
 {
-  char *colp;
-  memset(bar, 0, sizeof(struct ProgressData));
-
-  /* pass the resume from value through to the progress function so it can
-   * display progress towards total file not just the part that's left. */
-  if(config->use_resume)
-    bar->initial_size = config->resume_from;
-
-  colp = curlx_getenv("COLUMNS");
+  unsigned int width = 0;
+  char *colp = curl_getenv("COLUMNS");
   if(colp) {
     char *endptr;
     long num = strtol(colp, &endptr, 10);
     if((endptr != colp) && (endptr == colp + strlen(colp)) && (num > 20) &&
        (num < 10000))
-      bar->width = (int)num;
+      width = (unsigned int)num;
     curl_free(colp);
   }
 
-  if(!bar->width) {
+  if(!width) {
     int cols = 0;
 
 #ifdef TIOCGSIZE
@@ -270,14 +274,30 @@ void progressbarinit(struct ProgressData *bar,
       }
     }
 #endif /* TIOCGSIZE */
-    if(cols > 20)
-      bar->width = cols;
+    if(cols < 10000)
+      width = cols;
   }
+  if(!width)
+    width = 79;
+  return width; /* 79 for unknown, might also be very small or very big */
+}
 
-  if(!bar->width)
-    bar->width = 79;
-  else if(bar->width > MAX_BARLENGTH)
+void progressbarinit(struct ProgressData *bar,
+                     struct OperationConfig *config)
+{
+  int cols;
+  memset(bar, 0, sizeof(struct ProgressData));
+
+  /* pass the resume from value through to the progress function so it can
+   * display progress towards total file not just the part that's left. */
+  if(config->use_resume)
+    bar->initial_size = config->resume_from;
+
+  cols = get_terminal_columns();
+  if(cols > MAX_BARLENGTH)
     bar->width = MAX_BARLENGTH;
+  else if(cols > 20)
+    bar->width = cols;
 
   bar->out = tool_stderr;
   bar->tick = 150;

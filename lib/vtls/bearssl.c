@@ -120,9 +120,9 @@ static CURLcode load_cafile(struct cafile_source *source,
   br_x509_pkey *pkey;
   FILE *fp = 0;
   unsigned char buf[BUFSIZ];
-  const unsigned char *p;
+  const unsigned char *p = NULL;
   const char *name;
-  size_t n, i, pushed;
+  size_t n = 0, i, pushed;
 
   DEBUGASSERT(source->type == CAFILE_SOURCE_PATH
               || source->type == CAFILE_SOURCE_BLOB);
@@ -489,7 +489,7 @@ static const struct st_cipher ciphertable[] = {
 #define NUM_OF_CIPHERS (sizeof(ciphertable) / sizeof(ciphertable[0]))
 #define CIPHER_NAME_BUF_LEN 64
 
-static bool is_separator(char c)
+static bool bearssl_is_separator(char c)
 {
   /* Return whether character is a cipher list separator. */
   switch(c) {
@@ -509,7 +509,6 @@ static CURLcode bearssl_set_selected_ciphers(struct Curl_easy *data,
 {
   uint16_t selected_ciphers[NUM_OF_CIPHERS];
   size_t selected_count = 0;
-  char cipher_name[CIPHER_NAME_BUF_LEN];
   const char *cipher_start = ciphers;
   const char *cipher_end;
   size_t i, j;
@@ -518,41 +517,48 @@ static CURLcode bearssl_set_selected_ciphers(struct Curl_easy *data,
     return CURLE_SSL_CIPHER;
 
   while(true) {
+    const char *cipher;
+    size_t clen;
+
     /* Extract the next cipher name from the ciphers string */
-    while(is_separator(*cipher_start))
+    while(bearssl_is_separator(*cipher_start))
       ++cipher_start;
-    if(*cipher_start == '\0')
+    if(!*cipher_start)
       break;
     cipher_end = cipher_start;
-    while(*cipher_end != '\0' && !is_separator(*cipher_end))
+    while(*cipher_end && !bearssl_is_separator(*cipher_end))
       ++cipher_end;
-    j = cipher_end - cipher_start < CIPHER_NAME_BUF_LEN - 1 ?
-        cipher_end - cipher_start : CIPHER_NAME_BUF_LEN - 1;
-    strncpy(cipher_name, cipher_start, j);
-    cipher_name[j] = '\0';
+
+    clen = cipher_end - cipher_start;
+    cipher = cipher_start;
+
     cipher_start = cipher_end;
 
     /* Lookup the cipher name in the table of available ciphers. If the cipher
        name starts with "TLS_" we do the lookup by IANA name. Otherwise, we try
        to match cipher name by an (OpenSSL) alias. */
-    if(strncasecompare(cipher_name, "TLS_", 4)) {
+    if(strncasecompare(cipher, "TLS_", 4)) {
       for(i = 0; i < NUM_OF_CIPHERS &&
-                 !strcasecompare(cipher_name, ciphertable[i].name); ++i);
+            (strlen(ciphertable[i].name) == clen) &&
+            !strncasecompare(cipher, ciphertable[i].name, clen); ++i);
     }
     else {
       for(i = 0; i < NUM_OF_CIPHERS &&
-                 !strcasecompare(cipher_name, ciphertable[i].alias_name); ++i);
+            (strlen(ciphertable[i].alias_name) == clen) &&
+            !strncasecompare(cipher, ciphertable[i].alias_name, clen); ++i);
     }
     if(i == NUM_OF_CIPHERS) {
-      infof(data, "BearSSL: unknown cipher in list: %s", cipher_name);
+      infof(data, "BearSSL: unknown cipher in list: %.*s",
+            (int)clen, cipher);
       continue;
     }
 
     /* No duplicates allowed */
     for(j = 0; j < selected_count &&
-               selected_ciphers[j] != ciphertable[i].num; j++);
+          selected_ciphers[j] != ciphertable[i].num; j++);
     if(j < selected_count) {
-      infof(data, "BearSSL: duplicate cipher in list: %s", cipher_name);
+      infof(data, "BearSSL: duplicate cipher in list: %.*s",
+            (int)clen, cipher);
       continue;
     }
 
@@ -680,7 +686,7 @@ static CURLcode bearssl_connect_step1(struct Curl_cfilter *cf,
 
     CURL_TRC_CF(data, cf, "connect_step1, check session cache");
     Curl_ssl_sessionid_lock(data);
-    if(!Curl_ssl_getsessionid(cf, data, &session, NULL)) {
+    if(!Curl_ssl_getsessionid(cf, data, &connssl->peer, &session, NULL)) {
       br_ssl_engine_set_session_parameters(&backend->ctx.eng, session);
       session_set = 1;
       infof(data, "BearSSL: reusing session ID");
@@ -701,7 +707,7 @@ static CURLcode bearssl_connect_step1(struct Curl_cfilter *cf,
     infof(data, VTLS_INFOF_ALPN_OFFER_1STR, proto.data);
   }
 
-  if(connssl->peer.is_ip_address) {
+  if(connssl->peer.type != CURL_SSL_PEER_DNS) {
     if(verifyhost) {
       failf(data, "BearSSL: "
             "host verification of IP address is not supported");
@@ -899,10 +905,11 @@ static CURLcode bearssl_connect_step3(struct Curl_cfilter *cf,
       return CURLE_OUT_OF_MEMORY;
     br_ssl_engine_get_session_parameters(&backend->ctx.eng, session);
     Curl_ssl_sessionid_lock(data);
-    incache = !(Curl_ssl_getsessionid(cf, data, &oldsession, NULL));
+    incache = !(Curl_ssl_getsessionid(cf, data, &connssl->peer,
+                                      &oldsession, NULL));
     if(incache)
       Curl_ssl_delsessionid(data, oldsession);
-    ret = Curl_ssl_addsessionid(cf, data, session, 0, &added);
+    ret = Curl_ssl_addsessionid(cf, data, &connssl->peer, session, 0, &added);
     Curl_ssl_sessionid_unlock(data);
     if(!added)
       free(session);
