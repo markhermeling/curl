@@ -19,7 +19,10 @@ jobs:
     env:
       ROOT_TREE: "OSS-Projects/curl-GitHub" 
       PROJECT_NAME: "curl"
-      REPO_URL: "https://github.com/CodeSecure-SE/curl"    # the github.repositoryUrl is not an http-link.
+      REPO_URL: "https://github.com/CodeSecure-SE/curl"  
+      GITHUB_TOKEN: ${{ secrets.github_token }} 
+
+
     steps:
       - name: Set parallelism
         run:  echo "PARALLEL=`nproc`" >> $GITHUB_ENV
@@ -53,4 +56,4 @@ jobs:
         with:
           sarif_file: warnings.sarif
           category: "CodeSecure CodeSonar"       
-               
+
