@@ -20,8 +20,11 @@ jobs:
       ROOT_TREE: "OSS-Projects/curl-GitHub" 
       PROJECT_NAME: "curl"
       REPO_URL: "https://github.com/CodeSecure-SE/curl"  
+      # GITHUB does not copy secrets to the environment, so we need to set them manually
       GITHUB_TOKEN: ${{ secrets.github_token }} 
-
+      CSONAR_HUB_PASSWORD: ${{ secrets.CSONAR_HUB_PASSWORD }}
+      CSONAR_HUB_USER: ${{ secrets.CSONAR_HUB_USER }}
+      CSONAR_HUB_URL: ${{ secrets.CSONAR_HUB_URL }}
 
     steps:
       - name: Set parallelism
